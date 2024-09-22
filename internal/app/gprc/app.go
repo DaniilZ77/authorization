@@ -78,14 +78,12 @@ func (a *App) MustRun() {
 }
 
 func (a *App) Run() error {
-	ctx := context.Background()
-
 	l, err := net.Listen("tcp", a.port)
 	if err != nil {
 		return err
 	}
 
-	logger.Log().Info(ctx, "grpc server started")
+	logger.Log().Info(context.Background(), "grpc server started")
 
 	if err := a.gRPCServer.Serve(l); err != nil {
 		return err
@@ -95,9 +93,7 @@ func (a *App) Run() error {
 }
 
 func (a *App) Stop() {
-	ctx := context.Background()
-
-	logger.Log().Info(ctx, "stopping grpc server")
+	logger.Log().Info(context.Background(), "stopping grpc server")
 
 	a.gRPCServer.GracefulStop()
 }
