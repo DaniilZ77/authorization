@@ -25,12 +25,10 @@ jobs:
             
             - name: Install dependencies
               run: |
-                cd backend
                 go mod tidy
 
             - name: Build
               run: |
-                cd backend
                 make build
 
     test_and_lint:
@@ -48,16 +46,13 @@ jobs:
 
         - name: Install project dependencies
           run: |
-            cd backend
             go mod tidy
 
         - name: Tests
           run: |
-            cd backend
             make test
           
         - name: Lint
           uses: golangci/golangci-lint-action@v6
           with:
             version: v1.60
-            working-directory: ./backend
