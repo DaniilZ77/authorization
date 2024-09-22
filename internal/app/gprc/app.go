@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/DaniilZ77/authorization/internal/config"
+	"github.com/DaniilZ77/authorization/internal/core"
+	"github.com/DaniilZ77/authorization/internal/grpc/auth"
 	"github.com/DaniilZ77/authorization/internal/lib/logger"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
 
@@ -19,10 +23,13 @@ type App struct {
 }
 
 func New(
-	port string,
+	ctx context.Context,
+	userService core.AuthService,
+	cfg *config.Config,
 ) *App {
-	ctx := context.Background()
+	opts := []grpc.ServerOption{}
 
+	// Logger
 	loggingOpts := []logging.Option{
 		logging.WithLogOnEvents(
 			logging.PayloadReceived,
@@ -30,6 +37,7 @@ func New(
 		),
 	}
 
+	// Recovery
 	recoveryOpts := []recovery.Option{
 		recovery.WithRecoveryHandler(func(p any) (err error) {
 			logger.Log().Error(ctx, "recovered from panic")
@@ -38,19 +46,30 @@ func New(
 		}),
 	}
 
-	gRPCServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			recovery.UnaryServerInterceptor(recoveryOpts...),
-			logging.UnaryServerInterceptor(interceptorLogger(logger.Log()), loggingOpts...),
-		),
-	)
+	opts = append(opts, grpc.ChainUnaryInterceptor(
+		recovery.UnaryServerInterceptor(recoveryOpts...),
+		logging.UnaryServerInterceptor(interceptorLogger(logger.Log()), loggingOpts...),
+		auth.InjectJWTSecretInterceptor(cfg.JWTSecret),
+		auth.InjectTokenTTLInterceptor(cfg.TokenTTL),
+	))
 
-	// Register you grpc services
-	//
+	// TLS
+	creds, err := credentials.NewServerTLSFromFile(cfg.Cert, cfg.Key)
+	if err != nil {
+		logger.Log().Fatal(ctx, "failed to create server TLS credentials: %v", err)
+	}
+
+	opts = append(opts, grpc.Creds(creds))
+
+	// Create gRPC server
+	gRPCServer := grpc.NewServer(opts...)
+
+	// Register services
+	auth.Register(gRPCServer, userService)
 
 	return &App{
 		gRPCServer: gRPCServer,
-		port:       port,
+		port:       cfg.Port,
 	}
 }
 
@@ -66,24 +85,24 @@ func interceptorLogger(l logger.Logger) logging.Logger {
 		case logging.LevelError:
 			l.Error(ctx, msg, fields...)
 		default:
-			panic(fmt.Sprintf("unknown level %v", lvl))
+			logger.Log().Fatal(ctx, fmt.Sprintf("unknown level %v", lvl))
 		}
 	})
 }
 
-func (a *App) MustRun() {
-	if err := a.Run(); err != nil {
-		panic(err)
+func (a *App) MustRun(ctx context.Context) {
+	if err := a.Run(ctx); err != nil {
+		logger.Log().Fatal(ctx, "failed to run grpc server: %v", err)
 	}
 }
 
-func (a *App) Run() error {
+func (a *App) Run(ctx context.Context) error {
 	l, err := net.Listen("tcp", a.port)
 	if err != nil {
 		return err
 	}
 
-	logger.Log().Info(context.Background(), "grpc server started")
+	logger.Log().Info(ctx, "grpc server started")
 
 	if err := a.gRPCServer.Serve(l); err != nil {
 		return err
@@ -92,8 +111,8 @@ func (a *App) Run() error {
 	return nil
 }
 
-func (a *App) Stop() {
-	logger.Log().Info(context.Background(), "stopping grpc server")
+func (a *App) Stop(ctx context.Context) {
+	logger.Log().Info(ctx, "stopping grpc server")
 
 	a.gRPCServer.GracefulStop()
 }

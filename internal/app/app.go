@@ -7,15 +7,16 @@ import (
 	"github.com/DaniilZ77/authorization/internal/config"
 	"github.com/DaniilZ77/authorization/internal/lib/logger"
 	"github.com/DaniilZ77/authorization/internal/lib/postgres"
+	"github.com/DaniilZ77/authorization/internal/service/auth"
+	"github.com/DaniilZ77/authorization/internal/store/postgres/user"
 )
 
 type App struct {
 	GRPCServer *grpcapp.App
+	PG         *postgres.Postgres
 }
 
-func New(cfg *config.Config) *App {
-	ctx := context.Background()
-
+func New(ctx context.Context, cfg *config.Config) *App {
 	// Init logger
 	logger.New(cfg.Log.Level)
 
@@ -24,14 +25,18 @@ func New(cfg *config.Config) *App {
 	if err != nil {
 		logger.Log().Fatal(ctx, "error with connection to database: %s", err.Error())
 	}
-	defer pg.Close(ctx)
+
+	// Store
+	userStore := user.New(pg)
 
 	// Service
-	//
+	authService := auth.New(userStore)
 
-	gRPCApp := grpcapp.New(cfg.Port)
+	// gRPC server
+	gRPCApp := grpcapp.New(ctx, authService, cfg)
 
 	return &App{
 		GRPCServer: gRPCApp,
+		PG:         pg,
 	}
 }

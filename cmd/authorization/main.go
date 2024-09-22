@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,10 +16,15 @@ func main() {
 		panic("failed to load config: " + err.Error())
 	}
 
-	application := app.New(cfg)
+	ctx := context.Background()
+
+	application := app.New(ctx, cfg)
+
+	// Closing DB
+	defer application.PG.Close(ctx)
 
 	go func() {
-		application.GRPCServer.Run()
+		application.GRPCServer.MustRun(ctx)
 	}()
 
 	stop := make(chan os.Signal, 1)
@@ -26,5 +32,6 @@ func main() {
 
 	<-stop
 
-	application.GRPCServer.Stop()
+	// Stopping server
+	application.GRPCServer.Stop(ctx)
 }
